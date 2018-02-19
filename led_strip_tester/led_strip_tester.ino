@@ -1,3 +1,14 @@
+#include "FastLED.h"
+
+#define NUM_LEDS 200
+
+#define CLOCK_PIN 9
+#define CLK_DATA_PIN 10
+#define TIME_DATA_PIN 11
+
+CRGB clk_leds[NUM_LEDS];
+CRGB time_leds[NUM_LEDS];
+
 #define number_of_74hc595s 2 // Number of Shift Registers
 #define NUM_REG_PINS number_of_74hc595s * 8
 boolean registers[NUM_REG_PINS];
@@ -61,7 +72,7 @@ int num_to_seg[10] = {SEG_0, SEG_1, SEG_2, SEG_3, SEG_4, SEG_5, SEG_6, SEG_7, SE
 #define NUM_SEGS 4
 int seg_to_update = 0;
 unsigned long previous_update_time = 0;
-int refresh_rate = 5;
+int refresh_rate = 0;
 int cathodes[NUM_SEGS] = {ANOD_1, ANOD_2, ANOD_6, ANOD_8}; 
 int seg_values[NUM_SEGS] = {0, 0, 0, 0};
 int anode_configs[4][NUM_SEGS] = { {HIGH, LOW, LOW, LOW}, {LOW, HIGH, LOW, LOW}, {LOW, LOW, HIGH, LOW}, {LOW, LOW, LOW, HIGH}};
@@ -78,7 +89,7 @@ int up_button_pin = 7;
 int down_button_pin = 8;
 
 int buttons[NUM_BUTTONS] = {up_button_pin, down_button_pin};
-int button_states[NUM_BUTTONS];             // the current reading from the input pin
+int button_states[NUM_BUTTONS]; // the current reading from the input pin
 int last_button_states[NUM_BUTTONS] = {LOW, LOW};   // the previous reading from the input pin
 
 // the following variables are unsigned longs because the time, measured in
@@ -86,15 +97,22 @@ int last_button_states[NUM_BUTTONS] = {LOW, LOW};   // the previous reading from
 unsigned long last_debounce_times[NUM_BUTTONS] = { 0 };  // the last time the output pin was toggled
 unsigned long debounce_delay = 20;    // the debounce time; increase if the output flickers
 
+unsigned long previous_blink_time = 0;
+
 int count = 0;
 
-int min_count = 0;
-int max_count = 30;
 
+unsigned long previous_change = 0;
+int color_num = 0; 
+#define NUM_COLORS 3
+CRGB colors[NUM_COLORS] = {CRGB::Red, CRGB::Green, CRGB::Blue}; 
 
 void setup() {
 
   Serial.begin(9600);
+
+  FastLED.addLeds<APA102, CLK_DATA_PIN, CLOCK_PIN, BGR>(clk_leds, NUM_LEDS);
+  FastLED.addLeds<NEOPIXEL, TIME_DATA_PIN>(time_leds, NUM_LEDS);
   
   pinMode(SREG_SER_PIN, OUTPUT);
   pinMode(SREG_OE_PIN, OUTPUT);
@@ -108,9 +126,6 @@ void setup() {
   digitalWrite(SREG_OE_PIN, LOW);
   digitalWrite(SREG_SRCLR_PIN, HIGH);
 
-
-  pinMode(13, OUTPUT);
-
   set_write(ANOD_1, LOW);
   set_write(ANOD_2, LOW);
   set_write(ANOD_4, LOW);
@@ -120,11 +135,40 @@ void setup() {
 }
 
 void loop() {
+  
+  process_buttons();
+  
+  set_number(count);
 
   update_display();
 
-  set_number(count);
+  unsigned long current_time = millis();
 
+  if (current_time - previous_change > 1000) {
+    color_num++;
+    if (color_num >= NUM_COLORS) {
+      color_num = 0;
+    }
+    previous_change = current_time;
+  }
+
+  for (int i = 0; i < count; i++) {
+    clk_leds[i] = colors[color_num];
+    time_leds[i] = colors[color_num];
+  }
+  FastLED.show();
+
+  for (int i = count; i < NUM_LEDS; i++) {
+    clk_leds[i] = CRGB::Black;
+    time_leds[i] = CRGB::Black;
+  }
+  FastLED.show();
+ 
+  
+
+}
+
+void process_buttons() {
   for (int i = 0; i < NUM_BUTTONS; i++) {
 
     int reading = digitalRead(buttons[i]);
@@ -139,11 +183,11 @@ void loop() {
         if (button_states[i] == HIGH) {
 
           if (buttons[i] == up_button_pin) {
-            if (count !=  max_count) {
+            if (count !=  NUM_LEDS) {
               count++;
             }
           } else {
-            if (count !=  min_count) {
+            if (count !=  0) {
               count--;
             }
           }
@@ -154,7 +198,6 @@ void loop() {
   
     last_button_states[i] = reading;
   }
-
 }
 
 void update_display() {
